@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.venv/
+# نسخة احتياطية بتتعمل مع كل تشغيل، والـ git history هو الباك أب الحقيقي
+data/egx_raw_backup.csv

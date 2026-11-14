@@ -1,0 +1,9 @@
+# ده اللي GitHub Actions بيثبّته (التحديث اليومي + الموديل)
+yfinance
+gdeltdoc
+pandas
+numpy
+scikit-learn
+catboost
+xgboost
+joblib

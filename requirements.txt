@@ -1,0 +1,5 @@
+# ده اللي Streamlit Cloud بيثبّته (الداشبورد بس، خفيف وسريع)
+streamlit
+pandas
+numpy
+plotly
