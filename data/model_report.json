@@ -1,0 +1,63 @@
+{
+  "test_period": [
+    "2025-11-23",
+    "2026-10-29"
+  ],
+  "rows": 14754,
+  "auc_strong_moves": 0.5316,
+  "market_avg_10d_return": 1.52,
+  "ratings": [
+    {
+      "rating": "Very Strong",
+      "n": 2955,
+      "avg_10d_return": 2.13,
+      "excess_vs_market": 0.6,
+      "pct_up": 56.9
+    },
+    {
+      "rating": "Strong",
+      "n": 2951,
+      "avg_10d_return": 1.75,
+      "excess_vs_market": 0.24,
+      "pct_up": 53.9
+    },
+    {
+      "rating": "Average",
+      "n": 2951,
+      "avg_10d_return": 1.9,
+      "excess_vs_market": 0.38,
+      "pct_up": 55.6
+    },
+    {
+      "rating": "Weak",
+      "n": 2951,
+      "avg_10d_return": 1.42,
+      "excess_vs_market": -0.09,
+      "pct_up": 55.8
+    },
+    {
+      "rating": "Very Weak",
+      "n": 2946,
+      "avg_10d_return": 0.39,
+      "excess_vs_market": -1.13,
+      "pct_up": 48.9
+    }
+  ],
+  "top10_daily_avg_return": 2.33,
+  "bottom10_daily_avg_return": 0.36,
+  "rank_ic": 0.084,
+  "daily_avg_score_range_in_test": [
+    0.382,
+    0.903
+  ],
+  "asof": "2026-11-12",
+  "stocks_scored": 65,
+  "excluded": {
+    "DEIN.CA": "no trading volume in the last 10 days (price is flat)",
+    "ORAS.CA": "no trading volume in the last 10 days (price is flat)"
+  },
+  "market_avg_score_today": 0.263,
+  "market_score_above_test_range": false,
+  "model_trained_until": "2026-10-29",
+  "generated_at": "2026-11-14 13:46"
+}
