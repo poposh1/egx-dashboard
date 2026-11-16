@@ -27,6 +27,7 @@ PRED_CSV     = DATA_DIR / "predictions.csv"
 HISTORY_CSV  = DATA_DIR / "dashboard_history.csv"                # شارت كل سهم (آخر 260 يوم)
 SCORES_CSV   = DATA_DIR / "scores_history.csv"                   # بيتراكم كل يوم
 REPORT_JSON  = DATA_DIR / "model_report.json"
+BACKTEST_CSV = DATA_DIR / "backtest.csv"                          # توقعات فترة الاختبار vs اللي حصل فعلًا
 
 TARGET = "Target_10d_Trend"
 TRAIN_WINDOW_DAYS = 750          # آخر 750 يوم تداول (زي النوت)
@@ -240,6 +241,8 @@ if not FORCE_RETRAIN:
             need_retrain, reason = True, f"model is {age} days behind the data"
         elif refreshed_after:
             need_retrain, reason = True, "some stock prices were re-adjusted"
+        elif RUN_EVALUATION and not BACKTEST_CSV.exists():
+            need_retrain, reason = True, "backtest file missing"
 print("Retrain:", need_retrain, "|", reason if need_retrain else f"model trained until {artifact['trained_until']}")
 
 report = json.loads(REPORT_JSON.read_text(encoding="utf-8")) if REPORT_JSON.exists() else {}
@@ -283,6 +286,12 @@ if need_retrain and RUN_EVALUATION:
     print(f"Market average 10-day return: {report['market_avg_10d_return']:+.2f}%\n")
     print(pd.DataFrame(rows).to_string(index=False))
     print(f"\nTop-10 by score each day: {top10:+.2f}% | Bottom-10: {bot10:+.2f}% | Rank IC: {ic:.3f}")
+
+    # كل توقع في فترة الاختبار + اللي حصل فعلًا، عشان الداشبورد تعرض سجل كل سهم
+    bt = te[["Date", "Ticker", "Score", "Rating", "Future_Return_10d_%", "Excess"]].copy()
+    bt["Rank"] = te.groupby("Date")["Score"].rank(ascending=False, method="first").astype(int)
+    bt.sort_values(["Ticker", "Date"]).round(4).to_csv(BACKTEST_CSV, index=False)
+    print("Saved backtest ->", BACKTEST_CSV, f"({len(bt):,} rows)")
 
 if need_retrain:
     final_train = train_pool[train_pool["Date"] >= dates[max(0, len(dates) - TRAIN_WINDOW_DAYS)]]

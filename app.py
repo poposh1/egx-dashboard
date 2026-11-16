@@ -30,6 +30,7 @@ except FileNotFoundError as err:
 
 pred, hist, scores = data["predictions"], data["history"], data["scores"]
 report, status = data["report"], data["status"]
+backtest = data["backtest"]
 asof = pd.Timestamp(report.get("asof") or pred["Date"].max())
 
 
@@ -80,6 +81,25 @@ def render_model_card():
             st.dataframe(pd.DataFrame({"Ticker": list(excluded), "Reason": list(excluded.values())}), hide_index=True)
 
 
+def render_live_scoreboard():
+    live = dd.live_results(scores, hist)
+    with st.expander("Live track record since launch"):
+        if live.empty:
+            st.info("No live results yet. They start appearing about two weeks after the first scored day, "
+                    "once 10 trading days have passed.")
+            return
+        hit = dd.hit_summary(live)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Scored days with a known outcome", live["Date"].nunique())
+        c2.metric("Right calls", "-" if not hit else str(hit["right"]) + " of " + str(hit["calls"]))
+        c3.metric("Hit rate", "-" if not hit else fmt(hit["hit_rate"], "{:.0f}", "%"))
+        table = dd.rating_table(live).reset_index().rename(columns={
+            "n": "Calls", "avg_return": "Avg 10d return %", "avg_excess": "Avg vs market %"}).round(2)
+        st.dataframe(table, hide_index=True)
+        st.caption("A call is right when a Very Strong or Strong stock beat the market over the next 10 trading days, "
+                   "or a Weak or Very Weak stock lagged it. A coin flip is right about 50% of the time.")
+
+
 # ----------------------------------------------------------------------------- main page
 def render_ranking():
     c1, c2, c3, c4 = st.columns(4)
@@ -115,6 +135,7 @@ def render_ranking():
         st.query_params["ticker"] = str(view.iloc[picked[0]]["Ticker"])
         st.rerun()
 
+    render_live_scoreboard()
     render_model_card()
 
 
@@ -160,6 +181,19 @@ def price_figure(h):
     return fig
 
 
+def rating_bar_figure(by):
+    vals = by["avg_excess"]
+    fig = go.Figure(go.Bar(
+        x=list(by.index), y=vals,
+        marker_color=["#26a69a" if (pd.notna(v) and v > 0) else "#ef5350" for v in vals],
+        text=["no calls" if pd.isna(v) else f"{v:+.2f}%<br>n={n}" for v, n in zip(vals, by["n"])],
+        textposition="outside", cliponaxis=False))
+    fig.add_hline(y=0, line_color="#8a8f98")
+    fig.update_layout(height=380, margin=dict(l=10, r=10, t=30, b=10), showlegend=False,
+                      yaxis_title="Avg 10-day return vs market (%)")
+    return fig
+
+
 def rank_figure(s):
     x = s["Date"].dt.strftime("%Y-%m-%d")
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
@@ -178,6 +212,45 @@ def back_to_ranking():
     st.session_state["nonce"] = st.session_state.get("nonce", 0) + 1
     st.query_params.clear()
     st.rerun()
+
+
+def hit_metrics(hit, market_hit):
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Right calls", str(hit["right"]) + " of " + str(hit["calls"]))
+    delta = None if not market_hit else fmt(hit["hit_rate"] - market_hit["hit_rate"], "{:+.0f}", " pts vs all stocks")
+    c2.metric("Hit rate", fmt(hit["hit_rate"], "{:.0f}", "%"), delta)
+    c3.metric("All stocks", "-" if not market_hit else fmt(market_hit["hit_rate"], "{:.0f}", "%"))
+
+
+def render_track_record(ticker):
+    st.caption("A call is **right** when a Very Strong or Strong stock beat the market over the next 10 trading days, "
+               "or a Weak or Very Weak stock lagged it. Average ratings are not counted. "
+               "A coin flip is right about 50% of the time. Wrong calls are shown too.")
+
+    st.markdown("##### Live record: calls made before the outcome was known")
+    live = dd.live_results(scores, hist)
+    mine = live[live["Ticker"] == ticker] if not live.empty else live
+    if mine.empty:
+        first = scores["Date"].min() if len(scores) else None
+        st.info("Live results appear about two weeks after the first scored day"
+                + ("" if first is None else " (" + str(first.date()) + ")") + ", once 10 trading days have passed.")
+    else:
+        hit = dd.hit_summary(mine)
+        if hit:
+            hit_metrics(hit, dd.hit_summary(live))
+        st.dataframe(dd.calls_table(mine), hide_index=True)
+
+    st.markdown("##### Test period: days the model had not seen when it was trained")
+    rec = dd.stock_track_record(backtest, ticker)
+    if rec is None:
+        st.info("The test-period record is created the next time the model retrains.")
+        return
+    if rec["hit"]:
+        hit_metrics(rec["hit"], rec["market_hit"])
+    st.plotly_chart(rating_bar_figure(rec["by_rating"]))
+    st.warning("A rough guide, not proof. Each call looks 10 days ahead, so calls overlap and this stock has only about "
+               + str(max(rec["days"] // 10, 1)) + " independent periods. The all-stocks numbers on the main page are more reliable.")
+    st.dataframe(dd.calls_table(rec["rows"]), hide_index=True)
 
 
 def render_detail(ticker):
@@ -206,7 +279,7 @@ def render_detail(ticker):
                 + fmt(item.get("excess_vs_market"), "{:+.2f}", "%") + " vs the market), and "
                 + fmt(item.get("pct_up"), "{:.0f}", "%") + " of them went up. This is a historical average, not a promise.")
 
-    tab_chart, tab_ind, tab_rank = st.tabs(["Chart", "Indicators", "Rank history"])
+    tab_chart, tab_ind, tab_rank, tab_proof = st.tabs(["Chart", "Indicators", "Rank history", "Track record"])
 
     with tab_chart:
         span = st.radio("Range", ["3M", "6M", "1Y"], index=1, horizontal=True)
@@ -250,6 +323,9 @@ def render_detail(ticker):
             st.info("Rank history builds up one day at a time. Days collected so far: " + str(len(s)) + ".")
         else:
             st.plotly_chart(rank_figure(s))
+
+    with tab_proof:
+        render_track_record(ticker)
 
 
 # ----------------------------------------------------------------------------- run
