@@ -1,11 +1,13 @@
 {
-  "updated_at_cairo": "2026-11-16 19:28",
+  "updated_at_cairo": "2026-11-17 01:11",
   "data_last_date": "2026-11-12",
   "rows": 96759,
   "tickers": 67,
   "new_rows_added": 0,
   "tickers_history_refreshed": [],
-  "tickers_without_new_data": [],
+  "tickers_without_new_data": [
+    "CSAG.CA"
+  ],
   "stale_tickers": {},
   "news_ok": false,
   "news_failed_parts": [
