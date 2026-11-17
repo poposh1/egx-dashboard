@@ -1,13 +1,13 @@
 {
-  "updated_at_cairo": "2026-11-17 01:11",
-  "data_last_date": "2026-11-12",
-  "rows": 96759,
+  "updated_at_cairo": "2026-11-18 00:00",
+  "data_last_date": "2026-11-16",
+  "rows": 96826,
   "tickers": 67,
-  "new_rows_added": 0,
-  "tickers_history_refreshed": [],
-  "tickers_without_new_data": [
-    "CSAG.CA"
+  "new_rows_added": 67,
+  "tickers_history_refreshed": [
+    "EGAL.CA"
   ],
+  "tickers_without_new_data": [],
   "stale_tickers": {},
   "news_ok": false,
   "news_failed_parts": [
@@ -15,7 +15,6 @@
     "Tone_egypt_economy",
     "Vol_egyptian_pound",
     "Tone_egyptian_pound",
-    "Vol_global_events",
-    "Tone_global_events"
+    "Vol_global_events"
   ]
 }
