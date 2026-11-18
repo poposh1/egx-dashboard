@@ -1,12 +1,10 @@
 {
-  "updated_at_cairo": "2026-11-18 00:00",
-  "data_last_date": "2026-11-16",
-  "rows": 96826,
+  "updated_at_cairo": "2026-11-18 23:41",
+  "data_last_date": "2026-11-17",
+  "rows": 96893,
   "tickers": 67,
   "new_rows_added": 67,
-  "tickers_history_refreshed": [
-    "EGAL.CA"
-  ],
+  "tickers_history_refreshed": [],
   "tickers_without_new_data": [],
   "stale_tickers": {},
   "news_ok": false,
@@ -15,6 +13,7 @@
     "Tone_egypt_economy",
     "Vol_egyptian_pound",
     "Tone_egyptian_pound",
-    "Vol_global_events"
+    "Vol_global_events",
+    "Tone_global_events"
   ]
 }
