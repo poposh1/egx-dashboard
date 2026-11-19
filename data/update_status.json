@@ -1,7 +1,7 @@
 {
-  "updated_at_cairo": "2026-11-18 23:41",
-  "data_last_date": "2026-11-17",
-  "rows": 96893,
+  "updated_at_cairo": "2026-11-19 23:58",
+  "data_last_date": "2026-11-18",
+  "rows": 96960,
   "tickers": 67,
   "new_rows_added": 67,
   "tickers_history_refreshed": [],
@@ -13,7 +13,6 @@
     "Tone_egypt_economy",
     "Vol_egyptian_pound",
     "Tone_egyptian_pound",
-    "Vol_global_events",
-    "Tone_global_events"
+    "Vol_global_events"
   ]
 }
