@@ -1,13 +1,11 @@
 {
-  "updated_at_cairo": "2026-11-24 03:28",
-  "data_last_date": "2026-11-22",
-  "rows": 97093,
+  "updated_at_cairo": "2026-11-25 01:22",
+  "data_last_date": "2026-11-23",
+  "rows": 97161,
   "tickers": 67,
-  "new_rows_added": 66,
+  "new_rows_added": 68,
   "tickers_history_refreshed": [],
-  "tickers_without_new_data": [
-    "EFID.CA"
-  ],
+  "tickers_without_new_data": [],
   "stale_tickers": {},
   "news_ok": false,
   "news_failed_parts": [
