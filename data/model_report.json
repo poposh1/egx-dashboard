@@ -1,63 +1,63 @@
 {
   "test_period": [
-    "2025-11-23",
-    "2026-11-01"
+    "2025-11-30",
+    "2026-11-09"
   ],
-  "rows": 14819,
-  "auc_strong_moves": 0.5314,
-  "market_avg_10d_return": 1.54,
+  "rows": 14888,
+  "auc_strong_moves": 0.5365,
+  "market_avg_10d_return": 1.47,
   "ratings": [
     {
       "rating": "Very Strong",
-      "n": 2968,
-      "avg_10d_return": 2.19,
-      "excess_vs_market": 0.65,
-      "pct_up": 56.9
+      "n": 2985,
+      "avg_10d_return": 2.08,
+      "excess_vs_market": 0.6,
+      "pct_up": 56.4
     },
     {
       "rating": "Strong",
-      "n": 2964,
-      "avg_10d_return": 1.77,
-      "excess_vs_market": 0.24,
-      "pct_up": 54.1
+      "n": 2977,
+      "avg_10d_return": 1.76,
+      "excess_vs_market": 0.29,
+      "pct_up": 54.2
     },
     {
       "rating": "Average",
-      "n": 2964,
-      "avg_10d_return": 1.89,
-      "excess_vs_market": 0.35,
-      "pct_up": 56.0
+      "n": 2977,
+      "avg_10d_return": 1.69,
+      "excess_vs_market": 0.22,
+      "pct_up": 55.5
     },
     {
       "rating": "Weak",
-      "n": 2964,
-      "avg_10d_return": 1.41,
-      "excess_vs_market": -0.13,
-      "pct_up": 55.9
+      "n": 2977,
+      "avg_10d_return": 1.51,
+      "excess_vs_market": 0.05,
+      "pct_up": 55.8
     },
     {
       "rating": "Very Weak",
-      "n": 2959,
-      "avg_10d_return": 0.43,
-      "excess_vs_market": -1.11,
-      "pct_up": 49.1
+      "n": 2972,
+      "avg_10d_return": 0.3,
+      "excess_vs_market": -1.16,
+      "pct_up": 48.5
     }
   ],
-  "top10_daily_avg_return": 2.36,
-  "bottom10_daily_avg_return": 0.44,
-  "rank_ic": 0.084,
+  "top10_daily_avg_return": 2.16,
+  "bottom10_daily_avg_return": 0.28,
+  "rank_ic": 0.078,
   "daily_avg_score_range_in_test": [
-    0.382,
-    0.903
+    0.371,
+    0.904
   ],
-  "asof": "2026-11-23",
+  "asof": "2026-11-24",
   "stocks_scored": 65,
   "excluded": {
     "DEIN.CA": "no trading volume in the last 10 days (price is flat)",
     "ORAS.CA": "no trading volume in the last 10 days (price is flat)"
   },
-  "market_avg_score_today": 0.448,
+  "market_avg_score_today": 0.516,
   "market_score_above_test_range": false,
-  "model_trained_until": "2026-11-01",
-  "generated_at": "2026-11-25 01:26"
+  "model_trained_until": "2026-11-09",
+  "generated_at": "2026-11-26 00:58"
 }

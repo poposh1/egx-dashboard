@@ -1,18 +1,19 @@
 {
-  "updated_at_cairo": "2026-11-25 01:22",
-  "data_last_date": "2026-11-23",
-  "rows": 97161,
+  "updated_at_cairo": "2026-11-26 00:55",
+  "data_last_date": "2026-11-24",
+  "rows": 97228,
   "tickers": 67,
-  "new_rows_added": 68,
-  "tickers_history_refreshed": [],
+  "new_rows_added": 67,
+  "tickers_history_refreshed": [
+    "ADCI.CA",
+    "DEIN.CA"
+  ],
   "tickers_without_new_data": [],
   "stale_tickers": {},
-  "news_ok": false,
+  "news_ok": true,
   "news_failed_parts": [
     "Vol_egypt_economy",
     "Tone_egypt_economy",
-    "Vol_egyptian_pound",
-    "Tone_egyptian_pound",
-    "Vol_global_events"
+    "Tone_egyptian_pound"
   ]
 }
