@@ -50,14 +50,14 @@
     0.371,
     0.904
   ],
-  "asof": "2026-11-24",
+  "asof": "2026-11-25",
   "stocks_scored": 65,
   "excluded": {
     "DEIN.CA": "no trading volume in the last 10 days (price is flat)",
     "ORAS.CA": "no trading volume in the last 10 days (price is flat)"
   },
-  "market_avg_score_today": 0.516,
+  "market_avg_score_today": 0.545,
   "market_score_above_test_range": false,
   "model_trained_until": "2026-11-09",
-  "generated_at": "2026-11-26 00:58"
+  "generated_at": "2026-11-27 00:50"
 }
