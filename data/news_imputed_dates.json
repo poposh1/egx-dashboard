@@ -1,0 +1,15 @@
+{
+  "note": "Trading days whose News_Volume/Sentiment_Score were carried forward because GDELT failed. update_data.py retries these days on the next run.",
+  "dates": [
+    "2026-10-05",
+    "2026-10-07",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-28",
+    "2026-10-29",
+    "2026-11-01",
+    "2026-11-02",
+    "2026-11-17"
+  ]
+}
