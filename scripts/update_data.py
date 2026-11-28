@@ -10,6 +10,8 @@ import pandas as pd
 import yfinance as yf
 from gdeltdoc import GdeltDoc, Filters
 
+from news_utils import (aggregate_news, detect_stale_dates, load_imputed, merge_news, save_imputed)
+
 pd.set_option("display.width", 200)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"   # <repo>/data
@@ -17,11 +19,15 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 OLD_CSV  = DATA_DIR / "EGX_Merged_News_Econ_Dataset.csv"   # الداتا الأصلية (Milestone 2)
 RAW_CSV  = DATA_DIR / "egx_raw.csv"                    # الملف اللي بيتحدث كل يوم
 STATUS_JSON = DATA_DIR / "update_status.json"
+IMPUTED_JSON = DATA_DIR / "news_imputed_dates.json"   # أيام أخبارها منسوخة (GDELT فشل) - بنحاول نصلحها كل تشغيل
 
 EXCLUDE_TICKERS = ["EGBE.CA"]      # سهم داتاه بايظة (زي النوت)
 OVERLAP_DAYS    = 30               # بننزّل آخر 30 يوم تاني عشان نتأكد إن الأسعار القديمة ما اتغيرتش
 FULL_START      = "2020-01-01"     # لو سهم اتغيرت أسعاره نزّله من الأول
 ADJ_TOLERANCE   = 0.005            # لو الفرق في السعر القديم أكتر من 0.5% نعتبره اتعدّل
+NEWS_AUTO_DETECT_SINCE = "2026-09-30"   # آخر يوم في الداتا الأصلية (Milestone 2): ما بنلمسهاش، بنصلّح بس اللي الـ pipeline ضافه
+NEWS_RETRY_WINDOW_DAYS = 120    # بنحاول نصلّح الأخبار المنسوخة لحد 120 يوم ورا
+NEWS_TIME_BUDGET_SEC   = 40 * 60  # أقصى وقت للأخبار كلها، عشان GDELT البطيء ما يعطّلش الـ workflow
 CAIRO_CLOSE_HOUR = 15.5            # البورصة بتقفل 2:30 م، بعد 3:30 م بنعتبر شمعة النهارده كاملة
 
 RAW_COLS = ["Date", "Ticker", "Company_Name", "Open", "High", "Low", "Close", "Volume",
@@ -129,9 +135,15 @@ print("Eco rows:", len(eco_new), "| last date:", eco_new["Date"].max() if len(ec
 gd = GdeltDoc()
 
 
-def fetch_range(kw, start, end, mode, tries=2):
-    # Try the period; if it fails, split it in half until it is about a week long
-    for _ in range(tries):
+news_deadline = time.time() + NEWS_TIME_BUDGET_SEC
+
+
+def fetch_range(kw, start, end, mode, tries=3):
+    # Try the period (with growing waits); if it fails, split it in half until it is about a week long
+    for attempt in range(tries):
+        if time.time() > news_deadline:
+            print("   news time budget finished - skipping")
+            return None
         try:
             f = Filters(keyword=kw, start_date=start, end_date=end)
             df = gd.timeline_search(mode, f)
@@ -141,7 +153,7 @@ def fetch_range(kw, start, end, mode, tries=2):
             return [df]
         except Exception as e:
             print(f"   retry {mode} {start}->{end}: {str(e)[:70]}")
-            time.sleep(10)
+            time.sleep(10 * (3 ** attempt))      # 10s ثم 30s ثم 90s
     s, e = pd.Timestamp(start), pd.Timestamp(end)
     if (e - s).days <= 6:
         return None
@@ -162,52 +174,63 @@ def to_daily(frames):
     return df.groupby("Date")["val"].mean()
 
 
-news_start = (last_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+# ---- الأخبار: نجيب الأيام الجديدة + نصلّح الأيام اللي كانت منسوخة في تشغيلات فاشلة قبل كده ----
+EXPECTED_VOL = [f"Vol_{t}" for t in NEWS_TOPICS]
+EXPECTED_TONE = [f"Tone_{t}" for t in NEWS_TOPICS]
+
+date_old_news = old.drop_duplicates("Date")[["Date", "News_Volume", "Sentiment_Score"]]
+retry_cutoff = last_date - pd.Timedelta(days=NEWS_RETRY_WINDOW_DAYS)
+if IMPUTED_JSON.exists():
+    prev_imputed = load_imputed(IMPUTED_JSON)
+else:       # أول مرة: نكتشف الأيام المنسوخة من الداتا نفسها (من بعد الداتا الأصلية)
+    prev_imputed = detect_stale_dates(date_old_news, max(retry_cutoff, pd.Timestamp(NEWS_AUTO_DETECT_SINCE)))
+    print("No news_imputed_dates.json yet - detected", len(prev_imputed), "carried-forward days in the data")
+known_days = set(date_old_news["Date"])
+prev_imputed = [d for d in prev_imputed if d in known_days]
+repair_dates = [d for d in prev_imputed if d >= retry_cutoff]
+too_old_imputed = [d for d in prev_imputed if d < retry_cutoff]      # بنسيبهم معلّمين من غير ما نحاول تاني
+
+# يوم الأحد بيتجمّع من الجمعة والسبت قبله، فنبدأ قبل أقدم يوم محتاج إصلاح بيومين
+news_start_ts = last_date + pd.Timedelta(days=1)
+if repair_dates:
+    news_start_ts = min(news_start_ts, min(repair_dates) - pd.Timedelta(days=2))
+news_start = news_start_ts.strftime("%Y-%m-%d")
 news_end = today.strftime("%Y-%m-%d")
 vol_series, tone_series, news_failed = {}, {}, []
 
-if pd.Timestamp(news_start) > pd.Timestamp(news_end):
+
+def fetch_news_part(topic, kw, mode, store, prefix):
+    frames = fetch_range(kw, news_start, news_end, mode)
+    daily = to_daily(frames) if frames is not None else None
+    name = f"{prefix}{topic}"
+    if daily is None:
+        print(f"   FAILED {name}")
+        return False
+    store[name] = daily
+    print(f"   ok {name}")
+    return True
+
+
+nothing_to_fetch = pd.Timestamp(news_start) > pd.Timestamp(news_end)
+if nothing_to_fetch:
     print("No new days to fetch news for.")
 else:
-    print(f"Fetching news {news_start} -> {news_end}")
-    for topic, kw in NEWS_TOPICS.items():
-        for mode, store, prefix in [("timelinevol", vol_series, "Vol_"), ("timelinetone", tone_series, "Tone_")]:
-            frames = fetch_range(kw, news_start, news_end, mode)
-            daily = to_daily(frames) if frames is not None else None
-            if daily is None:
-                news_failed.append(f"{prefix}{topic}")
-                print(f"   FAILED {prefix}{topic}")
-            else:
-                store[f"{prefix}{topic}"] = daily
-                print(f"   ok {prefix}{topic}")
+    print(f"Fetching news {news_start} -> {news_end} | days to repair: {len(repair_dates)}")
+    parts = [(t, kw, m, st, pf) for t, kw in NEWS_TOPICS.items()
+             for m, st, pf in [("timelinevol", vol_series, "Vol_"), ("timelinetone", tone_series, "Tone_")]]
+    failed_parts = [p_ for p_ in parts if not fetch_news_part(*p_)]
+    if failed_parts and time.time() < news_deadline:      # لفّة تانية بعد استراحة، GDELT غالبًا بيفك لوحده
+        print(f"Retrying {len(failed_parts)} failed news part(s) after a pause ...")
+        time.sleep(60)
+        failed_parts = [p_ for p_ in failed_parts if not fetch_news_part(*p_)]
+    news_failed = [f"{p_[4]}{p_[0]}" for p_ in failed_parts]
 
-news_ok = bool(vol_series) and bool(tone_series)
+# الأخبار بتتقبل كلها أو ولا حاجة: مجموع/متوسط على مواضيع ناقصة مقياسه مختلف عن اللي الموديل اتدرّب عليه
+fresh_news = None if (nothing_to_fetch or news_failed) else aggregate_news(vol_series, tone_series, EXPECTED_VOL, EXPECTED_TONE)
+news_ok = nothing_to_fetch or not news_failed
 print("News OK:", news_ok, "| failed:", news_failed)
-
-def roll_weekend_to_sunday(d):
-    if d.weekday() == 4:      # Friday
-        return d + pd.Timedelta(days=2)
-    if d.weekday() == 5:      # Saturday
-        return d + pd.Timedelta(days=1)
-    return d
-
-
-daily_news_new = pd.DataFrame(columns=["Date", "News_Volume", "Sentiment_Score"])
-if news_ok:
-    nd = pd.concat({**vol_series, **tone_series}, axis=1)
-    nd.index.name = "Date"
-    nd = nd.reset_index()
-    vol_cols = [c for c in nd.columns if str(c).startswith("Vol_")]
-    tone_cols = [c for c in nd.columns if str(c).startswith("Tone_")]
-    nd["News_Volume"] = nd[vol_cols].sum(axis=1)
-    nd["Sentiment_Score"] = nd[tone_cols].mean(axis=1)
-    nd["Trading_Date"] = nd["Date"].apply(roll_weekend_to_sunday)
-    daily_news_new = (nd.groupby("Trading_Date")
-                        .agg(News_Volume=("News_Volume", "sum"), Sentiment_Score=("Sentiment_Score", "mean"))
-                        .reset_index().rename(columns={"Trading_Date": "Date"}))
-    daily_news_new = daily_news_new[daily_news_new["Date"] > last_date]
-
-print(daily_news_new.tail())
+if fresh_news is not None:
+    print(fresh_news.tail())
 
 # ---- الأسعار ----
 keep_old = old[~old["Ticker"].isin(adjusted)][["Date", "Ticker", "Open", "High", "Low", "Close", "Volume"]]
@@ -229,9 +252,10 @@ eco_all = (pd.concat([date_old[["Date", "USD_EGP", "Brent_Oil"]], eco_part])
              .drop_duplicates("Date", keep="first").set_index("Date").sort_index())
 eco_all = eco_all.reindex(eco_all.index.union(all_dates)).ffill()
 
-news_all = (pd.concat([date_old[["Date", "News_Volume", "Sentiment_Score"]], daily_news_new])
-              .drop_duplicates("Date", keep="first").set_index("Date").sort_index())
-news_all = news_all.reindex(news_all.index.union(all_dates)).ffill()
+news_all, imputed_now = merge_news(date_old_news, fresh_news, all_dates, repair_dates)
+news_imputed = sorted(too_old_imputed + imputed_now)
+repaired_now = [d for d in repair_dates if d not in set(imputed_now)]
+print(f"News repaired: {len(repaired_now)} day(s) | still carried forward: {len(news_imputed)} day(s)")
 
 date_tbl = eco_all.join(news_all).reset_index().rename(columns={"index": "Date"})
 
@@ -261,9 +285,13 @@ status = {
     "tickers_history_refreshed": adjusted,
     "tickers_without_new_data": missing,
     "stale_tickers": {t: str(d.date()) for t, d in stale.items()},
-    "news_ok": bool(news_ok) or pd.Timestamp(news_start) > pd.Timestamp(news_end),
+    "news_ok": bool(news_ok),
     "news_failed_parts": news_failed,
+    "news_days_repaired": len(repaired_now),
+    "news_days_carried_forward": len(news_imputed),
+    "news_latest_carried_forward": bool(len(news_imputed)) and pd.Timestamp(latest) in set(news_imputed),
 }
 STATUS_JSON.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+save_imputed(IMPUTED_JSON, news_imputed)
 
 print(json.dumps(status, ensure_ascii=False, indent=2))

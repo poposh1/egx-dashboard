@@ -31,7 +31,15 @@ except FileNotFoundError as err:
 pred, hist, scores = data["predictions"], data["history"], data["scores"]
 report, status = data["report"], data["status"]
 backtest = data["backtest"]
+expl = data["explanations"]
+news_imputed = data.get("news_imputed")      # days whose news numbers were copied from an earlier day (or None)
 asof = pd.Timestamp(report.get("asof") or pred["Date"].max())
+
+upside = dd.upside_table(pred, backtest)      # expected 10-day change per stock (from the test period)
+calib = dd.score_calibration(backtest)        # what each ranking band actually returned in the test period
+drivers = dd.main_driver_map(expl, pred)      # the one factor that moved each stock's score most
+cutoffs = dd.rating_cutoffs(pred)             # score range behind each rating today
+backdrop = dd.market_backdrop(expl)           # today's market-wide push on every score
 
 
 def fmt(value, spec="{:.2f}", suffix=""):
@@ -49,7 +57,7 @@ def render_header():
     st.title("📈 EGX Stock Ranking")
     updated = status.get("updated_at_cairo") or report.get("generated_at") or "-"
     st.caption(f"Prices as of **{asof.date()}** · last update **{updated}** (Cairo time)")
-    for msg in dd.build_warnings(status, report, asof):
+    for msg in dd.build_warnings(status, report, asof, news_imputed):
         st.warning(msg)
 
 
@@ -100,6 +108,101 @@ def render_live_scoreboard():
                    "or a Weak or Very Weak stock lagged it. A coin flip is right about 50% of the time.")
 
 
+# ----------------------------------------------------------------------------- guide
+def render_guide():
+    """شرح كل رقم في الداشبورد في مكان واحد (يتفتح من غير ما تسيب الصفحة)."""
+    with st.expander("📖 Guide: what every number on this dashboard means", expanded=False):
+        st.markdown(
+            "**What this page does.** Every trading day the model scores the stocks of the Egyptian exchange and "
+            "ranks them for the next 10 trading days. It uses price, volume and market indicators, plus two small "
+            "daily market-wide numbers about news (how many articles and their average tone) - it never reads the "
+            "news text, and it uses no fundamentals. It is a course project, **not investment advice**."
+        )
+        st.markdown("##### The ranking table")
+        st.markdown(
+            "- **Rank** - today's position. 1 = the highest score of the day.\n"
+            "- **Score** - the model's output, between 0 and 1: how likely this stock is a *strong riser* "
+            "(up 3.5% or more within 10 trading days) rather than a *strong faller* (down 3% or more). "
+            "It was learned from 2020-2026 price history and is only used to rank stocks against each other.\n"
+            "- **Rating** - where the score falls in today's list: top 20% = Very Strong, next 20% = Strong, then "
+            "Average, Weak, bottom 20% = Very Weak. It is **relative**: the same number of stocks carry each label "
+            "every day, even in a falling market. \"Very Strong\" is not a broker's \"Strong Buy\".\n"
+            "- **Expected 10d %** - what stocks standing in the same band of the ranking actually returned over the "
+            "next 10 trading days during the test period. It is the average for that band, not a forecast for this "
+            "one stock.\n"
+            "- **Typical range** - the middle half of those outcomes (25th to 75th percentile). Wide on purpose: "
+            "10-day moves are noisy.\n"
+            "- **Main reason** - the single factor that moved this stock's score most, compared with the other stocks "
+            "today. ↑ pushed its score up, ↓ pulled it down.\n"
+            "- **1d % / 5d % / 20d %** - the stock's own price change over 1, 5 and 20 trading days.\n"
+            "- **RSI** - 14-day Relative Strength Index. Above 70 is usually called overbought, below 30 oversold.\n"
+            "- **Close** - the last closing price in EGP."
+        )
+        st.markdown("##### Why the rating is what it is today")
+        if not cutoffs.empty:
+            cut = pd.DataFrame({
+                "Rating": [rating_label(r) for r in cutoffs.index],
+                "Stocks": cutoffs["Stocks"].astype(int).values,
+                "Lowest score in the band": cutoffs["Min score"].round(4).values,
+                "Highest score in the band": cutoffs["Max score"].round(4).values,
+            })
+            st.dataframe(cut, hide_index=True)
+        st.caption("The ratings are cut-offs on today's scores, not fixed levels: the same score can be Very Strong "
+                   "on a weak day and Average on a strong one.")
+
+        st.markdown("##### Where the expected 10-day % comes from")
+        if calib.empty:
+            st.info("The test-period file (backtest.csv) is not there yet, so the expected numbers cannot be shown. "
+                    "They appear after the next model retrain.")
+        else:
+            table = pd.DataFrame({
+                "Where it stood in the ranking": calib["Position"].values,
+                "Cases": calib["Similar cases"].astype(int).values,
+                "Avg 10d return %": calib["Expected_10d_%"].round(2).values,
+                "% that rose": calib["P_up_%"].round(0).values,
+                "Typical low %": calib["Range_Low_%"].round(1).values,
+                "Typical high %": calib["Range_High_%"].round(1).values,
+            })
+            st.dataframe(table, hide_index=True)
+            st.caption("Test period only: for every day in the test period, stocks were put in 10 bands by their "
+                       "score, then the real 10-day return was measured. This is history, not a promise.")
+
+        st.markdown("##### How good is the model, honestly")
+        st.markdown(
+            f"- Rank correlation with what actually happened (IC): **{fmt(report.get('rank_ic'), '{:.3f}')}** "
+            "(0 = no skill, 1 = perfect).\n"
+            f"- Strong-move detection (AUC): **{fmt(report.get('auc_strong_moves'), '{:.4f}')}** (0.5 = a coin flip).\n"
+            f"- In the test period the top 10 stocks each day returned **{fmt(report.get('top10_daily_avg_return'), '{:+.2f}', '%')}** "
+            f"on average over the next 10 days, the bottom 10 **{fmt(report.get('bottom10_daily_avg_return'), '{:+.2f}', '%')}**.\n"
+            f"- The whole market averaged **{fmt(report.get('market_avg_10d_return'), '{:+.2f}', '%')}** over the same horizon, "
+            "so most of any 10-day return is the market, not the ranking."
+        )
+        st.caption("Translation: the model separates the strongest stocks from the weakest, but the edge is small and "
+                   "the middle of the list is close to a tie.")
+
+        st.markdown("##### The detail page (click any row)")
+        st.markdown(
+            "- **Why this score** - the factors behind this stock's score and rank: what the model looked at, "
+            "this stock's value, the market median, and which way each factor pushed.\n"
+            "- **Chart** - candlesticks with the 20/50/200-day averages, Bollinger bands, volume, RSI and MACD.\n"
+            "- **Indicators** - every indicator the model uses for this stock, with a one-line meaning, plus the "
+            "market context that is the same for all stocks.\n"
+            "- **Rank history** - how the stock's rank and score moved day by day since the dashboard started.\n"
+            "- **Track record** - how this stock's past calls turned out, live and in the test period."
+        )
+
+        st.markdown("##### Warnings and exclusions")
+        st.markdown(
+            "- A warning at the top means the data is old, the latest news numbers were copied from an earlier day (the news feed failed), a stock has no recent prices, or "
+            "today's average score is outside the range the model was tested on. Rankings are less reliable then.\n"
+            "- Stocks are excluded when they have not traded in the last 10 days, when their price history is broken, "
+            "or when the indicators cannot be computed. The list is at the bottom of this guide."
+        )
+        excluded = report.get("excluded") or {}
+        if excluded:
+            st.dataframe(pd.DataFrame({"Ticker": list(excluded), "Why": list(excluded.values())}), hide_index=True)
+
+
 # ----------------------------------------------------------------------------- main page
 def render_ranking():
     c1, c2, c3, c4 = st.columns(4)
@@ -112,18 +215,35 @@ def render_ranking():
     query = f1.text_input("Search ticker or company", "")
     chosen = f2.multiselect("Rating", dd.RATINGS, default=dd.RATINGS)
 
-    view = dd.ranking_view(pred, query, chosen or None)
-    st.caption("Click a row to open the stock's details. Click a column header to sort.")
+    view = dd.ranking_view(pred, query, chosen or None, upside, drivers)
+    st.caption("Click a row to open the stock's details. Click a column header to sort. "
+               "Every column is explained in the guide above.")
 
     config = {
-        "Rank": st.column_config.NumberColumn("Rank", format="%d"),
-        "Score": st.column_config.ProgressColumn(
-            "Score", min_value=float(pred["Score"].min()), max_value=float(pred["Score"].max()), format="%.3f"),
-        "Close": st.column_config.NumberColumn("Close", format="%.2f"),
+        "Rank": st.column_config.NumberColumn("Rank", format="%d", help="Today's position; 1 = the highest score."),
+        "Score": st.column_config.NumberColumn(
+            "Score", format="%.3f",
+            help="Model output between 0 and 1: chance the stock is a strong riser (up 3.5% or more in 10 trading "
+                 "days) rather than a strong faller. Used only to rank stocks against each other."),
+        "Rating": st.column_config.TextColumn(
+            "Rating", help="Position in today's list: top 20% Very Strong ... bottom 20% Very Weak. Relative, "
+                           "not a broker's Strong Buy."),
+        "Expected 10d %": st.column_config.NumberColumn(
+            "Expected 10d %", format="%+.2f%%",
+            help="Average 10-day return of stocks in the same ranking band during the test period. A band average, "
+                 "not a per-stock forecast."),
+        "Typical range": st.column_config.TextColumn(
+            "Typical range", help="Middle half (25th-75th percentile) of those past outcomes."),
+        "Close": st.column_config.NumberColumn("Close", format="%.2f", help="Last close in EGP."),
         "1d %": st.column_config.NumberColumn("1d %", format="%.2f"),
         "5d %": st.column_config.NumberColumn("5d %", format="%.2f"),
         "20d %": st.column_config.NumberColumn("20d %", format="%.2f"),
-        "RSI": st.column_config.NumberColumn("RSI", format="%.0f"),
+        "RSI": st.column_config.NumberColumn("RSI", format="%.0f",
+                                             help="14-day RSI: above 70 usually called overbought, below 30 oversold."),
+        "Main reason": st.column_config.TextColumn(
+            "Main reason", width="medium",
+            help="The factor that moved this stock's score most, compared with the other stocks today. "
+                 "↑ pushed the score up, ↓ pulled it down."),
     }
     event = st.dataframe(
         view, hide_index=True, height=620, column_config=config,
@@ -253,6 +373,96 @@ def render_track_record(ticker):
     st.dataframe(dd.calls_table(rec["rows"]), hide_index=True)
 
 
+def driver_figure(d):
+    """Bar chart: how much each factor pushed this stock's score, compared with the average stock today."""
+    d = d.sort_values("Effect")
+    colors = ["#26a69a" if v > 0 else "#ef5350" for v in d["Effect"]]
+    fig = go.Figure(go.Bar(
+        x=d["Effect"], y=d["Factor"], orientation="h", marker_color=colors,
+        text=[f"{v:+.3f}" for v in d["Effect"]], textposition="outside", cliponaxis=False,
+        customdata=np.stack([d["This stock"], d["Market median"], d["Position in market"]], axis=-1),
+        hovertemplate="%{y}<br>this stock: %{customdata[0]} (market median %{customdata[1]})"
+                      "<br>position in market: %{customdata[2]}<extra></extra>"))
+    fig.add_vline(x=0, line_color="#8a8f98")
+    fig.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10), showlegend=False,
+                      xaxis_title="Effect on the score (model units, vs the average stock today)")
+    return fig
+
+
+def render_why(ticker, r):
+    """ليه السهم ده واقف في المكان ده: الترتيب والدرجة والعوامل، واللي فترة الاختبار بتقوله."""
+    n = len(pred)
+    rank = int(r["Rank"])
+    st.markdown(f"##### Why {ticker} is ranked #{rank} of {n}")
+
+    above = pred[pred["Rank"] < rank]["Score"]
+    below = pred[pred["Rank"] > rank]["Score"]
+    if rank == 1:
+        where = "It is the highest score of the day."
+    elif rank == n:
+        where = "It is the lowest score of the day."
+    else:
+        where = (f"The stock just above it scores {fmt(above.min(), '{:.3f}')}, the one just below "
+                 f"{fmt(below.max(), '{:.3f}')}.")
+    bullets = [
+        f"**Score {fmt(r['Score'], '{:.3f}')}** puts it at rank **#{rank} of {n}**. " + where,
+        f"**What the score means:** the model gives it a {r['Score']:.0%} chance of being a strong riser "
+        "(up 3.5% or more in 10 trading days) rather than a strong faller (down 3% or more), judged from price and "
+        "volume patterns learned on 2020-2026 data.",
+    ]
+    if not cutoffs.empty and r["Rating"] in cutoffs.index:
+        c = cutoffs.loc[r["Rating"]]
+        band = {"Very Strong": "top 20% of today's scores", "Strong": "next 20% down from the top",
+                "Average": "the middle 20%", "Weak": "the 20% below the middle",
+                "Very Weak": "the bottom 20%"}.get(r["Rating"], "a slice of today's ranking")
+        bullets.insert(1, f"**Rating {r['Rating']}** = {band}: today that means a score from "
+                          f"{c['Min score']:.3f} to {c['Max score']:.3f} ({int(c['Stocks'])} stocks). Ratings are "
+                          "relative to today's list, not fixed levels, and not a broker's Strong Buy.")
+    else:
+        bullets.insert(1, f"**Rating {r['Rating']}** comes from its place in today's list.")
+    mine = upside[upside["Ticker"] == ticker]
+    if not mine.empty:
+        m = mine.iloc[0]
+        bullets.append(f"**What to expect:** stocks that stood in the **{m['Position']}** during the test period "
+                       f"returned **{m['Expected_10d_%']:+.2f}%** on average over the next 10 trading days "
+                       f"({int(m['Similar cases']):,} cases), rose {m['P_up_%']:.0f}% of the time, and the middle half "
+                       f"landed between {m['Range_Low_%']:+.1f}% and {m['Range_High_%']:+.1f}%. That is a band average, "
+                       "not a promise for this stock.")
+    for b in bullets:
+        st.markdown("- " + b)
+
+    st.markdown("##### What moved the score")
+    st.caption("Each factor's push on this stock's score, compared with the average stock today. "
+               "Green pushed the score up, red pulled it down. Factors that are identical for every stock "
+               "(the market context) are left out because they do not change the ranking.")
+    d = dd.driver_table(expl, ticker, top=10)
+    if d.empty:
+        st.info("No explanation file for today yet. It is written by scripts/explain.py during the daily update.")
+        return
+    st.plotly_chart(driver_figure(dd.driver_frame(expl, ticker, top=10)))
+
+    bullets = dd.why_bullets(expl, ticker, n=4)
+    if bullets:
+        st.markdown("**In plain words:**")
+        for b in bullets:
+            st.markdown("- " + b)
+
+    frame = dd.driver_frame(expl, ticker, top=10)
+    st.dataframe(
+        frame, hide_index=True,
+        column_config={
+            "Effect": st.column_config.NumberColumn("Effect", format="%+.3f",
+                                                    help="Model units. Positive = this factor pushed the score up."),
+            "Position in market": st.column_config.TextColumn(
+                "Position in market", help="Where this stock's value sits among today's stocks (0% = lowest, 100% = highest)."),
+        })
+    if backdrop:
+        st.info(f"Today's market backdrop ({', '.join(backdrop['features'])}) moves every stock's score by about "
+                f"{backdrop['effect']:+.2f} model units. It is the same for all stocks, so it does not change the ranking.")
+    st.caption("The model never reads news or company results. These factors are price, volume and market "
+               "indicators only, so a factor can be right about the past and wrong about next week.")
+
+
 def render_detail(ticker):
     if st.button("← Back to ranking"):
         back_to_ranking()
@@ -264,22 +474,34 @@ def render_detail(ticker):
     r = row.iloc[0]
 
     st.subheader(str(r["Company_Name"]) + "  ·  " + ticker)
-    c1, c2, c3, c4, c5 = st.columns(5)
+    mine = upside[upside["Ticker"] == ticker]
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Rank", "#" + str(int(r["Rank"])) + " of " + str(len(pred)))
     c2.metric("Rating", rating_label(r["Rating"]))
     c3.metric("Score", fmt(r["Score"], "{:.3f}"))
-    c4.metric("Close", fmt(r["Close"]), fmt(r["Daily_Return_%"], "{:+.2f}", "%"))
-    c5.metric("RSI (14)", fmt(r["RSI_14"], "{:.0f}"))
+    if mine.empty:
+        c4.metric("Expected 10d %", "-")
+    else:
+        m = mine.iloc[0]
+        c4.metric("Expected 10d %", fmt(m["Expected_10d_%"], "{:+.1f}", "%"),
+                  f"range {m['Range_Low_%']:+.1f}% to {m['Range_High_%']:+.1f}%", delta_color="off")
+    c5.metric("Close", fmt(r["Close"]), fmt(r["Daily_Return_%"], "{:+.2f}", "%"))
+    c6.metric("RSI (14)", fmt(r["RSI_14"], "{:.0f}"))
 
     for item in report.get("ratings") or []:
         if item.get("rating") == r["Rating"]:
             st.info(
-                "In the test period, stocks rated **" + str(r["Rating"]) + "** returned on average "
+                "In the test period, stocks rated **" + str(r["Rating"]) + "** that day (that is, the same fifth "
+                "of the list) returned on average "
                 + fmt(item.get("avg_10d_return"), "{:+.2f}", "%") + " over 10 trading days ("
                 + fmt(item.get("excess_vs_market"), "{:+.2f}", "%") + " vs the market), and "
                 + fmt(item.get("pct_up"), "{:.0f}", "%") + " of them went up. This is a historical average, not a promise.")
 
-    tab_chart, tab_ind, tab_rank, tab_proof = st.tabs(["Chart", "Indicators", "Rank history", "Track record"])
+    tab_why, tab_chart, tab_ind, tab_rank, tab_proof = st.tabs(
+        ["Why this score", "Chart", "Indicators", "Rank history", "Track record"])
+
+    with tab_why:
+        render_why(ticker, r)
 
     with tab_chart:
         span = st.radio("Range", ["3M", "6M", "1Y"], index=1, horizontal=True)
@@ -307,15 +529,22 @@ def render_detail(ticker):
         ]
         left.markdown("**This stock**")
         left.dataframe(pd.DataFrame(stock_rows, columns=["Indicator", "Value", "Meaning"]), hide_index=True)
+        carried = dd.news_is_carried(asof, news_imputed)
+        copied = "  ⚠ copied from an earlier day" if carried else ""
         market_rows = [
-            ("News sentiment", fmt(r["Sentiment_Score"], "{:.3f}")),
-            ("News volume", fmt(r["News_Volume"], "{:,.0f}")),
-            ("USD/EGP", fmt(r["USD_EGP"], "{:.2f}")),
+            ("News sentiment", fmt(r["Sentiment_Score"], "{:.3f}") + copied),
+            ("News volume", fmt(r["News_Volume"], "{:,.0f}") + copied),
+            ("USD/EGP (Yahoo market rate)", fmt(r["USD_EGP"], "{:.2f}")),
             ("Brent oil", fmt(r["Brent_Oil"], "{:.2f}")),
             ("Market above MA20 %", fmt(r["Market_Above_MA20_%"], "{:.1f}")),
         ]
         right.markdown("**Market context (same for all stocks)**")
         right.dataframe(pd.DataFrame(market_rows, columns=["Item", "Value"]), hide_index=True)
+        if carried:
+            right.caption("⚠ The news feed failed for this day, so the news numbers are copied from an earlier day. "
+                          "They are retried automatically on the next update.")
+        right.caption(f"USD/EGP is the Yahoo Finance market rate for {asof.date()}, not a bank's buy or sell price. "
+                      "Banks and the Central Bank usually quote within about 0.5% of it, and the rate may have moved since.")
 
     with tab_rank:
         s = dd.ticker_rank_history(scores, ticker)
@@ -330,6 +559,7 @@ def render_detail(ticker):
 
 # ----------------------------------------------------------------------------- run
 render_header()
+render_guide()
 selected = st.query_params.get("ticker")
 if selected:
     render_detail(str(selected))
